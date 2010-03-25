@@ -166,9 +166,13 @@ class OAuthClient(oauth.OAuthClient):
             self.consumer, http_url=self.request_token_url,
             parameters=self.parameters
         )
+        if self.callback_url:
+            oauth_request.parameters['oauth_callback'] = 'http://%s%s' % (
+                Site.objects.get_current().domain, reverse(self.callback_url))
+
         oauth_request.sign_request(self.signature_method, self.consumer, None)
         response = self._get_response(oauth_request)
-        
+
         if response.startswith('{'):
             # Response is in json convert to string
             oauth_token = simplejson.loads(response)['oauth_token']
@@ -176,7 +180,11 @@ class OAuthClient(oauth.OAuthClient):
 
             response = 'oauth_token=' + oauth_token + '&oauth_token_secret=' + oauth_token_secret
             
-        return oauth.OAuthToken.from_string(response)
+        token = oauth.OAuthToken.from_string(response)
+        if self.callback_url and not token.callback_confirmed:
+            # error of some kind?
+            raise Exception('Callback URL specified, but endpoint does not support 1.0a.')
+        return token
     
     def get_access_token(self):
         """
@@ -231,8 +239,6 @@ class OAuthClient(oauth.OAuthClient):
             http_url=self.authorization_url,
             token=self.token,
         )
-        if self.callback_url:
-            oauth_request.parameters['oauth_callback'] = Site.objects.get_current().domain + reverse(self.callback_url)
 
         oauth_request.sign_request(self.signature_method, self.consumer, self.token)
         return oauth_request.to_url()
